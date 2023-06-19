@@ -1,0 +1,136 @@
+import RPi.GPIO as GPIO
+import cv2
+import numpy as np
+import time
+import sys
+import tty
+import termios
+
+# Configuración de los pines GPIO para los moto reductores
+pin_motor_1_a = 17
+pin_motor_1_b = 18
+pin_motor_2_a = 27
+pin_motor_2_b = 22
+
+# Inicialización de los moto reductores
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(pin_motor_1_a, GPIO.OUT)
+GPIO.setup(pin_motor_1_b, GPIO.OUT)
+GPIO.setup(pin_motor_2_a, GPIO.OUT)
+GPIO.setup(pin_motor_2_b, GPIO.OUT)
+
+# Funciones para controlar los moto reductores
+def move_forward():
+    GPIO.output(pin_motor_1_a, GPIO.HIGH)
+    GPIO.output(pin_motor_1_b, GPIO.LOW)
+    GPIO.output(pin_motor_2_a, GPIO.HIGH)
+    GPIO.output(pin_motor_2_b, GPIO.LOW)
+
+def move_backward():
+    GPIO.output(pin_motor_1_a, GPIO.LOW)
+    GPIO.output(pin_motor_1_b, GPIO.HIGH)
+    GPIO.output(pin_motor_2_a, GPIO.LOW)
+    GPIO.output(pin_motor_2_b, GPIO.HIGH)
+
+def move_left():
+    GPIO.output(pin_motor_1_a, GPIO.LOW)
+    GPIO.output(pin_motor_1_b, GPIO.LOW)
+    GPIO.output(pin_motor_2_a, GPIO.HIGH)
+    GPIO.output(pin_motor_2_b, GPIO.LOW)
+    time.sleep(0.2)
+    stop_motors()
+
+def move_right():
+    GPIO.output(pin_motor_1_a, GPIO.HIGH)
+    GPIO.output(pin_motor_1_b, GPIO.LOW)
+    GPIO.output(pin_motor_2_a, GPIO.LOW)
+    GPIO.output(pin_motor_2_b, GPIO.LOW)
+    time.sleep(0.2)
+    stop_motors()
+
+def stop_motors():
+    GPIO.output(pin_motor_1_a, GPIO.LOW)
+    GPIO.output(pin_motor_1_b, GPIO.LOW)
+    GPIO.output(pin_motor_2_a, GPIO.LOW)
+    GPIO.output(pin_motor_2_b, GPIO.LOW)
+
+# Captura de teclas
+def getch():
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(sys.stdin.fileno())
+        ch = sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    return ch
+
+# Inicialización de la cámara
+cap = cv2.VideoCapture(0)
+
+# Programa principal
+try:
+    while True:
+        # Captura de tecla
+        key = getch()
+
+        if key == 'w':
+            move_forward()
+        elif key == 's':
+            move_backward()
+        elif key == 'a':
+            move_left()
+        elif key == 'd':
+            move_right()
+        else:
+            stop_motors()
+
+        if key == 'q':
+            break
+
+        # Lectura del frame de la cámara
+        ret, frame = cap.read()
+
+        if ret:
+            # Obtención del tamaño del frame
+            height, width, _ = frame.shape
+
+            # Agregar un recuadro de frame fijo
+            frame_with_box = frame.copy()
+            box_size = 100
+            box_color = (0, 255, 0)
+            cv2.rectangle(frame_with_box, (width // 2 - box_size // 2, height // 2 - box_size // 2),
+                          (width // 2 + box_size // 2, height // 2 + box_size // 2), box_color, 2)
+
+            # Convertir el frame a espacio de color HSV
+            hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+            # Definir el rango del color rojo en HSV
+            lower_red = np.array([0, 100, 100])
+            upper_red = np.array([10, 255, 255])
+
+            # Crear una máscara para detectar el color rojo
+            red_mask = cv2.inRange(hsv_frame, lower_red, upper_red)
+
+            # Contar los píxeles rojos en la máscara
+            red_pixel_count = cv2.countNonZero(red_mask)
+
+            # Si se detecta una luz roja fuerte, detenerse
+            if red_pixel_count > 1000:
+                stop_motors()
+
+            # Mostrar el frame
+            cv2.imshow('Video', frame_with_box)
+
+        # Esperar 1ms y comprobar si se presionó la tecla 'q'
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+except KeyboardInterrupt:
+    stop_motors()
+    GPIO.cleanup()
+
+# Liberar la cámara y destruir las ventanas
+cap.release()
+cv2.destroyAllWindows()
+
